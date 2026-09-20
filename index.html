@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeintheSunTimer</title>
+
+  <!-- Tailwind CSS: makes this a single-file app that can be opened directly in VS Code/browser -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Lucide icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body class="m-0">
+  <div id="app"></div>
+
+  <script>
+    const SKIN_TYPES = [
+      {
+        id: 1, label: 'Type I', name: 'Very Fair',
+        description: 'Pale white skin, blue/green eyes, blonde/red hair. Always burns, never tans.',
+        color: '#fcd5c5', baseFactor: 67
+      },
+      {
+        id: 2, label: 'Type II', name: 'Fair',
+        description: 'Fair skin, blue/green eyes. Burns easily, tans minimally.',
+        color: '#f5c4ab', baseFactor: 100
+      },
+      {
+        id: 3, label: 'Type III', name: 'Medium',
+        description: 'Darker white/golden skin. Burns moderately, tans gradually.',
+        color: '#dca788', baseFactor: 200
+      },
+      {
+        id: 4, label: 'Type IV', name: 'Olive',
+        description: 'Light brown or olive skin. Burns minimally, tans easily.',
+        color: '#b87c5d', baseFactor: 300
+      },
+      {
+        id: 5, label: 'Type V', name: 'Brown',
+        description: 'Dark brown skin. Rarely burns, tans very easily and deeply.',
+        color: '#8c583f', baseFactor: 400
+      },
+      {
+        id: 6, label: 'Type VI', name: 'Deeply Pigmented',
+        description: 'Dark brown to black skin. Never burns, highly naturally protected.',
+        color: '#563322', baseFactor: 500
+      }
+    ];
+
+    const ENVIRONMENTS = [
+      { id: 'normal', label: 'Lawn / Soil', desc: 'Standard ground level exposure', multiplier: 1.0, icon: '🏡' },
+      { id: 'concrete', label: 'Urban / Concrete', desc: 'Reflective pavement (+10% UV)', multiplier: 1.1, icon: '🏙️' },
+      { id: 'water', label: 'Beach / Water / Sand', desc: 'Highly reflective sand/water (+25% UV)', multiplier: 1.25, icon: '🏖️' },
+      { id: 'snow', label: 'Snow / Mountain', desc: 'Extreme reflection & altitude (+80% UV)', multiplier: 1.8, icon: '🏔️' }
+    ];
+
+    const SPF_LEVELS = [
+      { value: 1, label: 'No SPF', multiplier: 1, color: 'border-rose-200 text-rose-600 bg-rose-50/50' },
+      { value: 15, label: 'SPF 15', multiplier: 15, color: 'border-amber-200 text-amber-700 bg-amber-50/50' },
+      { value: 30, label: 'SPF 30', multiplier: 30, color: 'border-orange-200 text-orange-700 bg-orange-50/50' },
+      { value: 50, label: 'SPF 50+', multiplier: 50, color: 'border-emerald-200 text-emerald-700 bg-emerald-50/50' }
+    ];
+
+    const state = {
+      locationInput: '',
+      locationName: 'Honolulu, Hawaii',
+      uvIndex: 8.2,
+      selectedSkinType: SKIN_TYPES[1],
+      selectedEnv: ENVIRONMENTS[0],
+      selectedSpf: SPF_LEVELS[0],
+      isLoading: false,
+      error: null,
+      hourlyForecast: [
+        { hour: '10 AM', uv: 5.0 },
+        { hour: '11 AM', uv: 7.2 },
+        { hour: '12 PM', uv: 8.5 },
+        { hour: '1 PM', uv: 8.2 },
+        { hour: '2 PM', uv: 7.0 },
+        { hour: '3 PM', uv: 5.1 },
+        { hour: '4 PM', uv: 3.0 }
+      ]
+    };
+
+    function getUVRisk(uv) {
+      if (uv < 3) return {
+        label: 'Low', color: 'text-emerald-600', bg: 'bg-emerald-50',
+        border: 'border-emerald-200', bar: 'bg-emerald-400',
+        banner: 'from-emerald-400 to-teal-500',
+        advice: 'Great day to enjoy the outdoors!'
+      };
+      if (uv < 6) return {
+        label: 'Moderate', color: 'text-amber-600', bg: 'bg-amber-50',
+        border: 'border-amber-200', bar: 'bg-amber-400',
+        banner: 'from-amber-400 to-orange-400',
+        advice: 'Seek some shade during peak afternoon rays.'
+      };
+      if (uv < 8) return {
+        label: 'High', color: 'text-orange-600', bg: 'bg-orange-50',
+        border: 'border-orange-200', bar: 'bg-orange-500',
+        banner: 'from-orange-400 to-rose-400',
+        advice: 'Sun protection is highly advised. Apply SPF 30+!'
+      };
+      if (uv < 11) return {
+        label: 'Very High', color: 'text-rose-600', bg: 'bg-rose-50',
+        border: 'border-rose-200', bar: 'bg-rose-500',
+        banner: 'from-rose-500 to-pink-600',
+        advice: 'Minimize midday sun. Make sure to apply protective layers.'
+      };
+      return {
+        label: 'Extreme', color: 'text-purple-600', bg: 'bg-purple-50',
+        border: 'border-purple-200', bar: 'bg-purple-600',
+        banner: 'from-purple-500 to-indigo-700',
+        advice: 'Avoid direct midday sun if possible. Fast sunburn hazard!'
+      };
+    }
+
+    function calculateSafeTime() {
+      if (state.uvIndex <= 0.5) return { min: 'Unlimited', max: '', safe: true };
+
+      const effectiveUV = state.uvIndex * state.selectedEnv.multiplier;
+      const baseMinutes = state.selectedSkinType.baseFactor / effectiveUV;
+      const multiplierSpf = state.selectedSpf.multiplier;
+
+      const minCalculated = Math.max(1, Math.floor((baseMinutes * 0.85) * multiplierSpf));
+      const maxCalculated = Math.ceil((baseMinutes * 1.15) * multiplierSpf);
+
+      if (minCalculated > 480) {
+        return { min: '480+', max: '', safe: true };
+      }
+
+      return { min: minCalculated, max: maxCalculated, safe: false };
+    }
+
+    function icon(name, className = '') {
+      return `<i data-lucide="${name}" class="${className}"></i>`;
+    }
+
+    function render() {
+      const uvRisk = getUVRisk(state.uvIndex);
+      const timeResult = calculateSafeTime();
+
+      document.getElementById('app').innerHTML = `
+        <div class="min-h-screen bg-gradient-to-br from-sky-100 via-amber-50 to-orange-50 text-slate-800 font-sans selection:bg-rose-200 pb-20 relative overflow-hidden">
+
+          <div class="absolute top-0 right-0 w-[450px] h-[450px] bg-amber-400/15 rounded-full blur-3xl pointer-events-none -mr-40 -mt-40"></div>
+          <div class="absolute bottom-10 left-0 w-[550px] h-[550px] bg-sky-200/20 rounded-full blur-3xl pointer-events-none -ml-60"></div>
+
+          <header class="bg-white/40 backdrop-blur-md border-b border-white/50 sticky top-0 z-30">
+            <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-gradient-to-tr from-amber-400 to-orange-500 rounded-xl text-white shadow-md shadow-orange-300/30">
+                  ${icon('sun', 'w-5 h-5')}
+                </div>
+                <div>
+                  <h1 class="text-xl font-black tracking-tight bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 bg-clip-text text-transparent">
+                    Safe in the Sun<span class="font-light text-slate-500 text-xs tracking-widest uppercase ml-1">Timer</span>
+                  </h1>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <main class="max-w-5xl mx-auto px-6 mt-8 flex flex-col md:grid md:grid-cols-12 gap-6 items-start">
+
+            <section class="md:col-span-7 md:col-start-1 md:row-start-1 order-1 bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-white/60 transition-all hover:shadow-md w-full">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                  ${icon('map-pin', 'w-4 h-4 text-rose-500')}
+                  Find Sun Intensity
+                </h3>
+                <span class="text-[10px] bg-amber-100/70 text-amber-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  ${icon('compass', 'w-3 h-3')} Live UV API
+                </span>
+              </div>
+
+              <form id="searchForm" class="flex gap-2">
+                <div class="relative flex-1">
+                  <input id="locationInput" type="text" placeholder="Enter city (e.g. Nice, Gold Coast)..."
+                    value="${escapeHtml(state.locationInput)}"
+                    class="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none transition-all text-sm bg-white/95 text-slate-800 placeholder-slate-400" />
+                  ${icon('search', 'absolute left-3 top-3 w-4 h-4 text-amber-500/60')}
+                </div>
+                <button type="submit" ${state.isLoading || !state.locationInput.trim() ? 'disabled' : ''}
+                  class="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-rose-500 text-white text-xs font-bold rounded-xl hover:opacity-95 shadow-md shadow-orange-300/30 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0">
+                  ${state.isLoading
+                    ? '<div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>'
+                    : 'Search'}
+                </button>
+              </form>
+
+              ${state.error ? `
+                <p class="mt-2.5 text-red-500 text-xs flex items-center gap-1 font-semibold">
+                  ${icon('alert-triangle', 'w-3.5 h-3.5 shrink-0')} ${escapeHtml(state.error)}
+                </p>` : ''}
+            </section>
+
+            <div class="md:col-span-5 md:col-start-8 md:row-start-1 md:row-span-4 order-2 space-y-6 md:sticky md:top-24 w-full">
+
+              <section class="bg-white rounded-3xl shadow-xl shadow-orange-200/25 border-4 border-white overflow-hidden relative transition-all">
+                <div class="p-4 bg-gradient-to-r ${uvRisk.banner} text-white flex justify-between items-center">
+                  <div class="flex items-center gap-1.5">
+                    ${icon('map-pin', 'w-3.5 h-3.5 opacity-90')}
+                    <span class="text-[10px] uppercase tracking-wider font-extrabold">${escapeHtml(state.locationName)}</span>
+                  </div>
+                  <div class="bg-white/20 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-sm">
+                    Live Status
+                  </div>
+                </div>
+
+                <div class="p-6 text-center bg-gradient-to-b from-amber-50/20 to-white relative flex flex-col items-center">
+                  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-gradient-to-tr from-amber-300 to-rose-400 opacity-10 rounded-full blur-3xl pointer-events-none"></div>
+
+                  <span class="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                    Estimated Safe Sun Limit
+                  </span>
+
+                  <div class="my-6 inline-flex flex-col items-center justify-center p-8 bg-gradient-to-tr from-amber-400/10 via-orange-300/10 to-rose-400/5 rounded-full border border-orange-200/40 shadow-inner relative">
+                    ${icon('clock', 'w-5 h-5 text-orange-500 absolute top-4')}
+                    <div class="text-5xl sm:text-6xl font-black tracking-tight text-slate-900 mt-2 flex items-baseline justify-center">
+                      ${timeResult.safe
+                        ? `<span class="text-emerald-500 font-black">${timeResult.min}</span>`
+                        : `<span class="text-slate-800">${timeResult.min}</span>
+                           <span class="text-5xl text-slate-600 font-black mx-3">-</span>
+                           <span class="text-slate-800">${timeResult.max}</span></>`}
+                    </div>
+                    <span class="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">minutes</span>
+                  </div>
+
+                  <div class="w-full py-2.5 px-4 rounded-xl border ${uvRisk.border} ${uvRisk.bg} flex items-center justify-center gap-2 mb-4">
+                    ${icon('thermometer-sun', `w-4 h-4 ${uvRisk.color}`)}
+                    <span class="text-[11px] font-black uppercase tracking-wider text-slate-700">
+                      UV Index is <strong class="${uvRisk.color}">${state.uvIndex.toFixed(1)}</strong> (${uvRisk.label})
+                    </span>
+                  </div>
+                </div>
+
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-center text-center">
+                  <p class="text-slate-500 text-[11px] font-medium flex items-center gap-1.5">
+                    ${icon('sparkles', 'w-3.5 h-3.5 text-amber-500')}
+                    Refine your result with the boxes below ↓
+                  </p>
+                </div>
+              </section>
+
+              <section class="bg-white/70 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/60">
+                <h3 class="font-bold text-slate-800 text-xs flex items-center gap-1.5 mb-3">
+                  ${icon('sun', 'w-4 h-4 text-orange-500')}
+                  Daytime Solar Curve (Hourly UV)
+                </h3>
+
+                <div class="flex gap-2 overflow-x-auto pb-1.5">
+                  ${state.hourlyForecast.map(item => {
+                    const itemRisk = getUVRisk(item.uv);
+                    return `
+                      <div class="flex flex-col items-center justify-between p-2 bg-white/90 border border-slate-100 rounded-xl min-w-[65px] text-center shadow-sm">
+                        <span class="text-[8.5px] font-bold text-slate-400">${escapeHtml(item.hour)}</span>
+                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-[10.5px] font-black my-1.5 ${itemRisk.bg} ${itemRisk.color}">
+                          ${Number(item.uv).toFixed(1)}
+                        </div>
+                        <span class="text-[7.5px] font-extrabold text-slate-500 uppercase tracking-tight">${itemRisk.label}</span>
+                      </div>`;
+                  }).join('')}
+                </div>
+              </section>
+            </div>
+
+            <section class="md:col-span-7 md:col-start-1 md:row-start-2 order-3 bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-white/60 w-full">
+              <h3 class="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-3">
+                ${icon('info', 'w-4 h-4 text-amber-500')}
+                Skin Sensitivity (Fitzpatrick Scale)
+              </h3>
+
+              <div class="grid grid-cols-3 sm:grid-cols-6 gap-2.5 mb-4">
+                ${SKIN_TYPES.map(type => `
+                  <button data-skin="${type.id}"
+                    class="skin-btn relative flex flex-col items-center p-2 rounded-xl border-2 transition-all ${
+                      state.selectedSkinType.id === type.id
+                        ? 'border-orange-400 bg-amber-50/50 shadow-sm transform scale-105 ring-2 ring-orange-300/20'
+                        : 'border-slate-100 hover:border-orange-200 hover:bg-white'
+                    }"
+                    aria-label="Select ${type.label}">
+                    <div class="w-8 h-8 rounded-full border border-black/10 shadow-inner mb-1.5" style="background-color:${type.color}"></div>
+                    <span class="text-[10px] font-bold ${state.selectedSkinType.id === type.id ? 'text-orange-700' : 'text-slate-500'}">${type.label}</span>
+                  </button>
+                `).join('')}
+              </div>
+
+              <div class="bg-orange-50/30 rounded-xl p-3 border border-orange-100/50 flex items-start gap-2.5">
+                <div class="w-6 h-6 rounded-full border border-black/10 shrink-0 mt-0.5" style="background-color:${state.selectedSkinType.color}"></div>
+                <div>
+                  <h4 class="font-bold text-slate-800 text-xs">${state.selectedSkinType.label} - ${state.selectedSkinType.name}</h4>
+                  <p class="text-slate-500 text-[11px] mt-0.5 leading-relaxed">${state.selectedSkinType.description}</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="md:col-span-7 md:col-start-1 md:row-start-3 order-4 bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-white/60 w-full">
+              <h3 class="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-3">
+                ${icon('waves', 'w-4 h-4 text-sky-500')}
+                Your Environment
+              </h3>
+
+              <div class="grid grid-cols-2 gap-2.5">
+                ${ENVIRONMENTS.map(env => `
+                  <button data-env="${env.id}"
+                    class="env-btn p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 ${
+                      state.selectedEnv.id === env.id
+                        ? 'border-sky-400 bg-sky-50/40 shadow-sm ring-2 ring-sky-300/10'
+                        : 'border-slate-100 hover:border-sky-200 hover:bg-white'
+                    }">
+                    <span class="text-xl">${env.icon}</span>
+                    <div>
+                      <h4 class="font-bold text-xs ${state.selectedEnv.id === env.id ? 'text-sky-800' : 'text-slate-700'}">${env.label}</h4>
+                      <p class="text-slate-400 text-[9.5px] leading-tight mt-0.5">${env.desc}</p>
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            </section>
+
+            <section class="md:col-span-7 md:col-start-1 md:row-start-4 order-5 bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-white/60 w-full">
+              <h3 class="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-3">
+                ${icon('umbrella', 'w-4 h-4 text-emerald-500')}
+                Sunscreen Booster
+              </h3>
+
+              <div class="grid grid-cols-4 gap-2">
+                ${SPF_LEVELS.map(spf => `
+                  <button data-spf="${spf.value}"
+                    class="spf-btn py-2 rounded-xl border text-center transition-all flex flex-col justify-center items-center ${
+                      state.selectedSpf.value === spf.value
+                        ? `${spf.color} border-slate-600 ring-2 ring-slate-100 font-bold shadow-sm`
+                        : 'border-slate-100 text-slate-500 hover:border-emerald-200 hover:bg-white font-medium'
+                    } text-xs">
+                    <span class="text-sm font-black">${spf.label}</span>
+                    <span class="text-[8px] text-slate-400 mt-0.5">x${spf.multiplier} multiplier</span>
+                  </button>
+                `).join('')}
+              </div>
+            </section>
+          </main>
+
+          <footer class="max-w-5xl mx-auto px-6 mt-12 mb-6">
+            <div class="bg-white/40 backdrop-blur-md rounded-2xl p-5 border border-white/50">
+              <div class="flex gap-2.5">
+                ${icon('alert-triangle', 'w-5 h-5 text-rose-500 shrink-0 mt-0.5')}
+                <div>
+                  <h4 class="font-bold text-slate-800 text-[10.5px] uppercase tracking-wider">Medical Disclaimer & Legal Notice</h4>
+                  <p class="text-[10px] text-slate-500 leading-relaxed mt-1">
+                    This utility provides deterministic dermatological estimates built from general Fitzpatrick index guidelines and reflective albedo multipliers. Actual sunburn window varies heavily depending on active perspiration, water immersion, specific medications, elevation, altitude, cloud density, and individual history. Always wear broad-spectrum protection factor 30+, keep out of sun during top solar hours (10 AM to 4 PM), and reapply lotion every two hours. SafeintheSunTimer assumes no medical liability. Use at your own risk.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p class="text-center text-slate-400 text-[9.5px] font-bold tracking-widest uppercase mt-6">
+              Enjoy the sun responsibly • Pure Summer Vibes ⛱️
+            </p>
+          </footer>
+        </div>
+      `;
+
+      lucide.createIcons();
+      attachEvents();
+    }
+
+    function attachEvents() {
+      const input = document.getElementById('locationInput');
+
+      input.addEventListener('input', e => {
+        state.locationInput = e.target.value;
+        const button = document.querySelector('#searchForm button');
+        button.disabled = state.isLoading || !state.locationInput.trim();
+      });
+
+      document.getElementById('searchForm').addEventListener('submit', e => {
+        e.preventDefault();
+        fetchUVData(state.locationInput);
+      });
+
+      document.querySelectorAll('.skin-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.selectedSkinType = SKIN_TYPES.find(x => x.id === Number(btn.dataset.skin));
+          render();
+        });
+      });
+
+      document.querySelectorAll('.env-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.selectedEnv = ENVIRONMENTS.find(x => x.id === btn.dataset.env);
+          render();
+        });
+      });
+
+      document.querySelectorAll('.spf-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.selectedSpf = SPF_LEVELS.find(x => x.value === Number(btn.dataset.spf));
+          render();
+        });
+      });
+    }
+
+    async function fetchUVData(searchLocation) {
+      if (!searchLocation.trim()) return;
+
+      state.isLoading = true;
+      state.error = null;
+      render();
+
+      try {
+        // 1. Geocoding
+        const geoRes = await fetch(
+          `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchLocation)}&count=1`
+        );
+
+        if (!geoRes.ok) throw new Error('Could not reach the geocoding service.');
+
+        const geoData = await geoRes.json();
+
+        if (!geoData.results || geoData.results.length === 0) {
+          throw new Error("We couldn't locate that tropical paradise. Try another spot!");
+        }
+
+        const { latitude, longitude, name, admin1, country } = geoData.results[0];
+        state.locationName = `${name}${admin1 ? `, ${admin1}` : ''}, ${country}`;
+
+        // 2. UV Index & hourly forecast
+        const uvRes = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=uv_index&hourly=uv_index&timezone=auto`
+        );
+
+        if (!uvRes.ok) throw new Error('Could not reach the UV service.');
+
+        const uvData = await uvRes.json();
+
+        if (uvData.current && typeof uvData.current.uv_index === 'number') {
+          state.uvIndex = uvData.current.uv_index;
+        } else {
+          throw new Error('UV parameters currently taking a dip. Try again shortly!');
+        }
+
+        // 3. Find the actual current hour in the returned Open-Meteo time array
+        if (uvData.hourly?.time && uvData.hourly?.uv_index) {
+          const now = new Date();
+
+          let closestIndex = 0;
+          let smallestDifference = Infinity;
+
+          uvData.hourly.time.forEach((time, index) => {
+            const difference = Math.abs(new Date(time).getTime() - now.getTime());
+            if (difference < smallestDifference) {
+              smallestDifference = difference;
+              closestIndex = index;
+            }
+          });
+
+          const generatedForecast = [];
+
+          for (let i = -1; i <= 5; i++) {
+            const idx = closestIndex + i;
+            if (idx >= 0 && idx < uvData.hourly.time.length) {
+              const time = new Date(uvData.hourly.time[idx]);
+              generatedForecast.push({
+                hour: time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+                uv: Number(uvData.hourly.uv_index[idx] || 0)
+              });
+            }
+          }
+
+          if (generatedForecast.length) {
+            state.hourlyForecast = generatedForecast;
+          }
+        }
+
+      } catch (err) {
+        state.error = err.message || 'Error chasing the sunshine. Let’s try again.';
+      } finally {
+        state.isLoading = false;
+        render();
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    render();
+  </script>
+</body>
+</html>
